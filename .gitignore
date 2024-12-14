@@ -38,3 +38,6 @@ docs/_build
 
 # Cookiecutter
 output/
+
+# rck_jr dev files
+rosey/delme.py
