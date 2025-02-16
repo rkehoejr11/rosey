@@ -24,7 +24,9 @@ This process will include the following:
 """
 
 import pandas as pd # type: ignore
+import numpy as np # type: ignore
 from gbm import CBClassifierTrainer, CBRegressorTrainer # type: ignore
+from sklearn.preprocessing import LabelEncoder # type: ignore
 
 # TODO: Build out complete list of Pandas Dtypes
 FEASIBLE_DTYPES = [
@@ -188,13 +190,63 @@ def _catboost_data_preprocessing(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 # TODO: Design high correlation feature removal function
+def _drop_highly_correlated_columns(
+    df: pd.DataFrame, features: list[str], threshold: float = 0.9
+) -> tuple[pd.DataFrame, list[str]]:
+    """
+    Transform categorical features into numerical values using LabelEncoder(), so we can
+    properly perform correlation calculations.
+    Drop highly correlated columns from the DataFrame based on the threshold value.
 
-def main(df: pd.DataFrame, target_column: str,  model_type: str) -> dict:
+    Parameters:
+        df (pd.DataFrame): The DataFrame containing the customer data.
+        features (list[str]): The list of features to be analyzed.
+        threshold (float): The threshold value for the correlation matrix.
+
+    Returns:
+        Tuple[pd.DataFrame, list[str]]: A tuple containing the transformed DataFrame and
+        the list of features after dropping the highly correlated columns.
+    """
+    # Convert categorical and text features to numerical values
+    df_encoded = df[features].copy()
+    for column in df_encoded.select_dtypes(include=["object", "category"]).columns:
+        le = LabelEncoder()
+        df_encoded[column] = le.fit_transform(df_encoded[column].astype(str))
+    corr_matrix = df_encoded.corr().abs()
+    upper_tri = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+    to_drop = [
+        column for column in upper_tri.columns if any(upper_tri[column] > threshold)
+    ]
+    print(f"Columns to drop due to high correlation: {to_drop}")
+
+    df = df.drop(columns=to_drop)
+    features = [feature for feature in features if feature not in to_drop]
+
+    return df, features
+
+def main(df: pd.DataFrame, required_features: list, target_column: str,  model_type: str) -> dict:
     """
     Main function to run the automated feature selection pipeline
+
+    INPUTS:
+        - pd.DataFrame of raw data
+        - list of required features, that cannot be dropped
+        - target variable name
+        - model type (classifier or regressor)
+
+    OUTPUT:
+        - dictionary of feature name, feature importance, and feature type
     """
 
+    required_features.append(target_column)
+    required_df = df[required_features]
+    df = df.drop(columns=required_features)
+
     df = _catboost_data_preprocessing(df)
+
+    df = _drop_highly_correlated_columns(df, df.columns, HIGH_CORR_THRESHOLD)
+
+    df = pd.concat([required_df, df], axis=1)
 
     if model_type == "classifier":
         trainer = CBClassifierTrainer()
